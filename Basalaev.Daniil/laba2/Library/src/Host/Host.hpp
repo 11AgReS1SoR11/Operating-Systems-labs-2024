@@ -7,7 +7,7 @@
 #include "HostWindow.hpp"
 
 #include <atomic>
-#include <thread>
+#include <QThread>
 
 class Host : public QObject
 {
@@ -38,5 +38,5 @@ private:
     std::atomic<bool> m_isRunning{true};
     alias::book_container_t m_books;
     std::vector<utils::ClientInfoWithTimer> m_clients;
-    std::vector<std::thread> m_listenerThreads;
+    std::vector<std::unique_ptr<QThread>> m_listenerThreads;
 };

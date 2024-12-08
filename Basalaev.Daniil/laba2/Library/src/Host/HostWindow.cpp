@@ -10,9 +10,12 @@
 #include <QPalette>
 #include <QFont>
 
+#include <iostream>
+
 HostWindow::HostWindow(std::string const& hostTitle, alias::book_container_t const& books, QWidget* parent)
     : LibraryWindowImpl(alias::HOST_ID, books, parent)
 {
+    std::cout << "AAAAAAAAAAAAAAAAAAAA" << std::endl;
     QWidget* centralWidget = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(centralWidget);
 
@@ -46,6 +49,7 @@ HostWindow::HostWindow(std::string const& hostTitle, alias::book_container_t con
     centralWidget->setPalette(palette);
 
     connect(m_hostKillButton, &QPushButton::clicked, this, &HostWindow::terminateHost);
+    std::cout << "CREATED" << std::endl;
 }
 
 HostWindow::~HostWindow() = default;

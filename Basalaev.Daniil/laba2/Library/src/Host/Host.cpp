@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <signal.h>
 #include <cstdlib>
+#include <iostream> // 
 
 namespace details
 {
@@ -31,26 +32,38 @@ Host::Host(SemaphoreLocal& semaphore, std::vector<alias::id_t> const& clientId, 
     , m_connections(std::move(connections))
     , m_books{books}
 {
-    for (auto const id : clientId)
+    // TODO: check clientId.size() == connections.size()
+    for (size_t i = 0; i < clientId.size(); ++i)
     {
         auto& clientInfo = m_clients.emplace_back(utils::ClientInfoWithTimer{
-                                .info = {.clientId = id},
-                                .timer = std::unique_ptr<QTimer>{new QTimer()}
+                                .info = {.clientId = clientId[i]},
+                                .timer = nullptr
                             });
-        clientInfo.timer->setInterval(1000);
-        clientInfo.timer->setSingleShot(false);
-        // update client information every 1 second
-        connect(clientInfo.timer.get(), &QTimer::timeout, this, [this, &clientInfo]() {
-            clientInfo.info.secondsToKill--;
-            m_window->updateClientsInfo(m_clients);
-            if (clientInfo.info.secondsToKill == 0)
-            {
-                removeClient(clientInfo.info.clientId);
-                m_window->notifyClientTerminated(clientInfo.info.clientId);
-            }
+
+        auto thread = std::make_unique<QThread>();
+
+        connect(thread.get(), &QThread::started, this, [this, &clientInfo, i]() {
+            clientInfo.timer = std::make_unique<QTimer>();
+            clientInfo.timer->setInterval(1000);
+            clientInfo.timer->setSingleShot(false);
+
+            connect(clientInfo.timer.get(), &QTimer::timeout, this, [this, &clientInfo]() {
+                clientInfo.info.secondsToKill--;
+                m_window->updateClientsInfo(m_clients);
+                if (clientInfo.info.secondsToKill == 0)
+                {
+                    removeClient(clientInfo.info.clientId);
+                    m_window->notifyClientTerminated(clientInfo.info.clientId);
+                }
+            });
+
+            clientInfo.timer->start();
+            listen(*m_connections[i]);
         });
 
-        clientInfo.timer->start();
+        connect(thread.get(), &QThread::finished, thread.get(), &QThread::deleteLater);
+
+        m_listenerThreads.push_back(std::move(thread));
     }
 }
 
@@ -62,9 +75,10 @@ void Host::stop()
 
     for (auto& thread : m_listenerThreads)
     {
-        if (thread.joinable())
+        if (thread->isRunning())
         {
-            thread.join();
+            thread->quit();
+            thread->wait();
         }
     }
 }
@@ -73,17 +87,18 @@ int Host::start()
 {
     LOG_INFO(HOST_LOG, "successfully start");
 
-    // start listen messages from clients
-    for (auto& connection : m_connections)
-    {
-        m_listenerThreads.emplace_back(&Host::listen, this, std::ref(*connection));
-    }
-
     int argc = 0;
     QApplication app(argc, nullptr);
     m_window = std::unique_ptr<HostWindow>(new HostWindow("HOST WINDOW", m_books));
     m_window->show();
     m_window->updateClientsInfo(m_clients);
+
+    // start listen messages from clients
+    for (auto& thread : m_listenerThreads)
+    {
+        thread->start();
+    }
+
     int res = app.exec();
 
     stop();
@@ -173,6 +188,8 @@ void Host::removeClient(alias::id_t clientId)
         // TODO: stop timer???
         m_clients.erase(it);
     }
+
+    kill(clientId, SIGKILL);
 
     // TODO: close connection
 }
